@@ -17,16 +17,15 @@ class Word42 < Formula
   depends_on "glib"
   depends_on "gtk4"
   depends_on "lexbor"
+  depends_on "nelsonlove/tap/hyphen"
   depends_on "pango"
   depends_on "poppler"
 
   def install
     # Homebrew's lexbor ships a broken pkg-config file (a bare -I), so the
-    # build falls back to lexbor's CMake package config; point CMake at the
-    # Homebrew prefix so it can be found.
-    ENV["CMAKE_PREFIX_PATH"] = HOMEBREW_PREFIX
-
-    system "meson", "setup", "build", "--buildtype=release", *std_meson_args
+    # build falls back to lexbor's CMake package config. Superenv already puts
+    # HOMEBREW_PREFIX on CMAKE_PREFIX_PATH, so nothing to do here.
+    system "meson", "setup", "build", *std_meson_args
     system "meson", "compile", "-C", "build", "--verbose"
     system "meson", "install", "-C", "build"
   end
