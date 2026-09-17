@@ -61,9 +61,16 @@ class Word42 < Formula
         return 127;
       }
     C
+    # Homebrew's `system` execs the compiler directly, with no shell in
+    # between, so these -D flags reach it as literal argv text: whatever
+    # sits between the quote marks becomes the macro's C string-literal
+    # replacement verbatim. `.inspect` backslash-escapes any embedded `"`
+    # or `\` so a prefix containing one can't unbalance the flag -- hand-
+    # written quotes around a raw path would.
+    word42_bin = opt_bin/"word42"
     system ENV.cc, "-O2", "-Wall",
-           "-DHYPHEN_DIR=\"#{hyphen_dir}\"",
-           "-DWORD42_BIN=\"#{opt_bin}/word42\"",
+           "-DHYPHEN_DIR=#{hyphen_dir.to_s.inspect}",
+           "-DWORD42_BIN=#{word42_bin.to_s.inspect}",
            buildpath/"launcher.c", "-o", contents/"MacOS/word42"
 
     # The sizes and their @2x doubles that iconutil expects, from the PNGs
