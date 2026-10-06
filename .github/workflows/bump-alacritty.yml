@@ -1,0 +1,76 @@
+name: bump alacritty
+
+# Weekly check for a new Alacritty release. When one exists, download the DMG,
+# compute its sha256, and commit the new version and checksum to main, so
+# `brew upgrade --cask` picks it up with no manual step. Uses only the
+# job-scoped GITHUB_TOKEN (contents: write); no personal token.
+
+on:
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bump-alacritty
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      # setup-homebrew owns the checkout: it clones this tap into the
+      # workspace (replacing any earlier checkout) and sets git auth from the
+      # token. It must run before the cask is edited.
+      - name: Set up Homebrew
+        uses: Homebrew/actions/setup-homebrew@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update cask if a newer release exists
+        id: bump
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cask=Casks/alacritty.rb
+          current=$(sed -n 's/^  version "\(.*\)"$/\1/p' "$cask")
+          tag=$(gh api repos/alacritty/alacritty/releases/latest --jq .tag_name)
+          latest=${tag#v}
+          if [[ ! "$latest" =~ ^[0-9]+(\.[0-9]+)+$ ]]; then
+            echo "::error::unexpected tag '$tag'"; exit 1
+          fi
+          echo "current=$current latest=$latest"
+          if [[ "$latest" == "$current" ]] || \
+             [[ "$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -1)" != "$latest" ]]; then
+            echo "Up to date."; exit 0
+          fi
+          url="https://github.com/alacritty/alacritty/releases/download/v${latest}/Alacritty-v${latest}.dmg"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/alacritty.dmg" "$url"
+          sha=$(sha256sum "$RUNNER_TEMP/alacritty.dmg" | cut -d' ' -f1)
+          sed -i -e "s/^  version \".*\"$/  version \"${latest}\"/" \
+                 -e "s/^  sha256 \".*\"$/  sha256 \"${sha}\"/" "$cask"
+          grep -q "version \"${latest}\"" "$cask"
+          grep -q "sha256 \"${sha}\"" "$cask"
+          echo "version=$latest" >> "$GITHUB_OUTPUT"
+
+      # A push made with GITHUB_TOKEN does not trigger tests.yml, so check the
+      # edited cask here before it reaches main.
+      - name: Check cask and push
+        if: steps.bump.outputs.version != ''
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          set -euo pipefail
+          brew style Casks/alacritty.rb
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "alacritty ${VERSION}"
+          for attempt in 1 2 3; do
+            git pull --rebase origin main && git push origin HEAD:main && exit 0
+            git rebase --abort 2>/dev/null || true
+            sleep $((attempt * 10))
+          done
+          echo "::error::could not push the bump to main"; exit 1
