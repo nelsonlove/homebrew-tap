@@ -1,0 +1,54 @@
+name: bump alacritty
+
+# Weekly check for a new Alacritty release. When one exists, download the DMG,
+# compute its sha256, and commit the new version and checksum to main, so
+# `brew upgrade --cask` picks it up with no manual step. Uses only the
+# job-scoped GITHUB_TOKEN (contents: write); no personal token.
+
+on:
+  schedule:
+    - cron: "17 9 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bump-alacritty
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Bump cask if a newer release exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cask=Casks/alacritty.rb
+          current=$(sed -n 's/^  version "\(.*\)"$/\1/p' "$cask")
+          tag=$(gh api repos/alacritty/alacritty/releases/latest --jq .tag_name)
+          latest=${tag#v}
+          if [[ ! "$latest" =~ ^[0-9]+(\.[0-9]+)+$ ]]; then
+            echo "::error::unexpected tag '$tag'"; exit 1
+          fi
+          echo "current=$current latest=$latest"
+          if [[ "$latest" == "$current" ]] || \
+             [[ "$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -1)" != "$latest" ]]; then
+            echo "Up to date."; exit 0
+          fi
+          url="https://github.com/alacritty/alacritty/releases/download/v${latest}/Alacritty-v${latest}.dmg"
+          curl -fsSL --retry 3 -o alacritty.dmg "$url"
+          sha=$(sha256sum alacritty.dmg | cut -d' ' -f1)
+          rm -f alacritty.dmg
+          sed -i -e "s/^  version \".*\"$/  version \"${latest}\"/" \
+                 -e "s/^  sha256 \".*\"$/  sha256 \"${sha}\"/" "$cask"
+          grep -q "version \"${latest}\"" "$cask"
+          grep -q "sha256 \"${sha}\"" "$cask"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "alacritty ${latest}"
+          git push origin HEAD:main
