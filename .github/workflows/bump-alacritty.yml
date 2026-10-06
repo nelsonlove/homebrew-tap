@@ -23,7 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Bump cask if a newer release exists
+      - name: Update cask if a newer release exists
+        id: bump
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -41,14 +42,34 @@ jobs:
             echo "Up to date."; exit 0
           fi
           url="https://github.com/alacritty/alacritty/releases/download/v${latest}/Alacritty-v${latest}.dmg"
-          curl -fsSL --retry 3 -o alacritty.dmg "$url"
-          sha=$(sha256sum alacritty.dmg | cut -d' ' -f1)
-          rm -f alacritty.dmg
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/alacritty.dmg" "$url"
+          sha=$(sha256sum "$RUNNER_TEMP/alacritty.dmg" | cut -d' ' -f1)
           sed -i -e "s/^  version \".*\"$/  version \"${latest}\"/" \
                  -e "s/^  sha256 \".*\"$/  sha256 \"${sha}\"/" "$cask"
           grep -q "version \"${latest}\"" "$cask"
           grep -q "sha256 \"${sha}\"" "$cask"
+          echo "version=$latest" >> "$GITHUB_OUTPUT"
+
+      # A push made with GITHUB_TOKEN does not trigger tests.yml, so check the
+      # edited cask here before it reaches main.
+      - name: Set up Homebrew
+        if: steps.bump.outputs.version != ''
+        uses: Homebrew/actions/setup-homebrew@main
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check cask and push
+        if: steps.bump.outputs.version != ''
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          set -euo pipefail
+          brew style Casks/alacritty.rb
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "alacritty ${latest}"
-          git push origin HEAD:main
+          git commit -am "alacritty ${VERSION}"
+          for attempt in 1 2 3; do
+            git pull --rebase origin main && git push origin HEAD:main && exit 0
+            sleep $((attempt * 10))
+          done
+          echo "::error::could not push the bump to main"; exit 1

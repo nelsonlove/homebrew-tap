@@ -15,7 +15,7 @@ brew "<formula>"
 
 ## Casks
 
-- `alacritty`: the upstream Alacritty app. homebrew-cask disabled its cask on 2026-09-01 because the app is not notarised (`fails_gatekeeper_check`). This copy keeps the upstream URL, checksum, artifacts and `zap`, drops `disable!`, and clears the quarantine flag in `postflight` so Gatekeeper does not block the app. `.github/workflows/bump-alacritty.yml` checks for a new release every Monday and commits the new version and sha256 to `main`.
+- `alacritty`: the upstream Alacritty app. homebrew-cask disabled its cask on 2026-09-01 because the app is not notarised (`fails_gatekeeper_check`). This copy keeps the upstream URL, checksum, artifacts and `zap`, drops `disable!`, and clears the quarantine flag in `postflight_steps` so Gatekeeper does not block the app. `.github/workflows/bump-alacritty.yml` checks for a new release every Monday and commits the new version and sha256 to `main`.
 
 `brew install --cask nelsonlove/tap/alacritty`
 
