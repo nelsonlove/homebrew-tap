@@ -133,29 +133,36 @@ class ClaudeCodeLog < Formula
   end
 
   # The quickjs-ng 0.15.1.1 sdist leaves out four headers that the QuickJS-NG
-  # 0.15.1 sources it vendors include. Every file it does ship is identical to
-  # that tag, so the missing ones come from the same tag.
+  # 0.15.1 sources it vendors include (quickjs-c-atomics.h and three
+  # builtin-*.h): the header list in its setup.py predates them. Every file it
+  # does ship is identical to that tag, so the missing ones come from the same
+  # tag. Drop this resource once a quickjs-ng release in claude-code-log's
+  # range ships them.
   resource "quickjs-ng-sources" do
     url "https://github.com/quickjs-ng/quickjs/archive/refs/tags/v0.15.1.tar.gz"
     sha256 "c4e813951b7c46845096a948e978c620b11ab4cf5fd622ca09c727ec31f42623"
+
+    livecheck do
+      skip "Pinned to the QuickJS-NG version the quickjs-ng resource vendors"
+    end
   end
 
   def install
-    venv = virtualenv_create(libexec, "python3.15")
-    resource("quickjs-ng").stage do
+    quickjs = resource("quickjs-ng")
+    sources = resource("quickjs-ng-sources")
+    # quickjs-ng 0.15.1.x vendors QuickJS-NG 0.15.1; never mix headers from two versions.
+    unless quickjs.version.to_s.start_with?("#{sources.version}.")
+      odie "quickjs-ng-sources #{sources.version} does not match quickjs-ng #{quickjs.version}"
+    end
+
+    venv = virtualenv_install_with_resources(without: [quickjs.name, sources.name])
+    quickjs.stage do
       vendored = Pathname.pwd/"upstream-quickjs"
-      resource("quickjs-ng-sources").stage do
-        %w[
-          builtin-array-fromasync.h
-          builtin-iterator-zip-keyed.h
-          builtin-iterator-zip.h
-          quickjs-c-atomics.h
-        ].each { |header| cp header, vendored }
+      sources.stage do
+        Pathname.glob("*.h").each { |header| cp header, vendored unless (vendored/header).exist? }
       end
       venv.pip_install Pathname.pwd
     end
-    venv.pip_install resources.reject { |r| %w[quickjs-ng quickjs-ng-sources].include?(r.name) }
-    venv.pip_install_and_link buildpath
   end
 
   test do
